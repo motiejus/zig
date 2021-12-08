@@ -394,6 +394,7 @@ pub fn build(b: *Builder) !void {
     toolchain_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter, modes));
     toolchain_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    toolchain_step.dependOn(tests.addLinkTests(b, test_filter, enable_macos_sdk, target));
     if (!skip_run_translated_c) {
         toolchain_step.dependOn(tests.addRunTranslatedCTests(b, test_filter, target));
     }
