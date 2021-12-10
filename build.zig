@@ -45,6 +45,10 @@ pub fn build(b: *Builder) !void {
     test_stage2.addPackagePath("test_cases", "test/cases.zig");
     test_stage2.single_threaded = single_threaded;
 
+    var test_link = b.addTest("src/test/link.zig");
+    test_link.setBuildMode(mode);
+    test_link.addPackagePath("link_cases", "test/link.zig");
+
     const fmt_build_zig = b.addFmt(&[_][]const u8{"build.zig"});
 
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;

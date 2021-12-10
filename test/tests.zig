@@ -20,13 +20,11 @@ const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
 const gen_h = @import("gen_h.zig");
-const link = @import("link.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/translate_c.zig").TranslateCContext;
 pub const RunTranslatedCContext = @import("src/run_translated_c.zig").RunTranslatedCContext;
 pub const CompareOutputContext = @import("src/compare_output.zig").CompareOutputContext;
-pub const LinkContext = @import("src/link.zig").LinkContext;
 
 const TestTarget = struct {
     target: CrossTarget = @as(CrossTarget, .{}),
@@ -399,25 +397,6 @@ pub fn addRuntimeSafetyTests(b: *build.Builder, test_filter: ?[]const u8, modes:
 
     runtime_safety.addCases(cases);
 
-    return cases.step;
-}
-
-pub fn addLinkTests(
-    b: *build.Builder,
-    test_filter: ?[]const u8,
-    enable_macos_sdk: bool,
-    target: std.zig.CrossTarget,
-) *build.Step {
-    const cases = b.allocator.create(LinkContext) catch unreachable;
-    cases.* = LinkContext{
-        .b = b,
-        .step = b.step("test-link", "Run linker tests"),
-        .test_index = 0,
-        .test_filter = test_filter,
-        .enable_macos_sdk = enable_macos_sdk,
-        .target = target,
-    };
-    link.addCases(cases);
     return cases.step;
 }
 

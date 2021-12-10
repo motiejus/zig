@@ -1,32 +1,30 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const build = std.build;
 const CrossTarget = std.zig.CrossTarget;
 const io = std.io;
 const fs = std.fs;
 const macho = std.macho;
 const mem = std.mem;
 const fmt = std.fmt;
-const ArrayList = std.ArrayList;
-const Mode = std.builtin.Mode;
-const LibExeObjStep = build.LibExeObjStep;
 const tmpDir = std.testing.tmpDir;
+const testing = std.testing;
 
-pub const LinkContext = struct {
-    b: *build.Builder,
-    step: *build.Step,
-    test_index: usize,
-    test_filter: ?[]const u8,
-    enable_macos_sdk: bool,
-    target: CrossTarget,
+pub const TestContext = struct {
+    cases: std.ArrayList(Case),
 
-    pub const TestCase = struct {
+    pub const Case = struct {
         name: []const u8,
         target: CrossTarget,
-        kind: enum { exe, lib },
         zig_source: ?struct { basename: []const u8, bytes: []const u8 } = null,
-        c_sources: ArrayList(CSource),
+        c_sources: std.ArrayList(CSource),
+        link_flags: []const []const u8,
+        expected_out: ExpectedOut = .{},
+
+        const ExpectedOut = struct {
+            stdout: []const u8 = &[0]u8{},
+            stderr: []const u8 = &[0]u8{},
+        };
 
         const CSource = struct {
             basename: []const u8,
@@ -34,7 +32,11 @@ pub const LinkContext = struct {
             flags: []const []const u8,
         };
 
-        pub fn addZigSource(self: *TestCase, basename: []const u8, bytes: []const u8) void {
+        pub fn deinit(self: *Case) void {
+            self.c_sources.deinit();
+        }
+
+        pub fn addZigSource(self: *Case, basename: []const u8, bytes: []const u8) void {
             assert(self.zig_source == null);
             self.zig_source = .{
                 .basename = basename,
@@ -42,49 +44,44 @@ pub const LinkContext = struct {
             };
         }
 
-        pub fn addCSource(
-            self: *TestCase,
-            basename: []const u8,
-            bytes: []const u8,
-            flags: []const []const u8,
-        ) void {
-            self.c_sources.append(.{
+        pub fn addCSource(self: *Case, basename: []const u8, bytes: []const u8, flags: []const []const u8) !void {
+            try self.c_sources.append(.{
                 .basename = basename,
                 .bytes = bytes,
                 .flags = flags,
-            }) catch unreachable;
+            });
+        }
+
+        pub fn expectStdOut(self: *Case, stdout: []const u8) void {
+            self.expected_out.stdout = stdout;
+        }
+
+        pub fn expectStdErr(self: *Case, stderr: []const u8) void {
+            self.expected_out.stderr = stderr;
         }
     };
 
-    pub fn createExe(self: *LinkContext, name: []const u8, target: CrossTarget) TestCase {
-        return TestCase{
+    pub fn createCase(self: *TestContext, name: []const u8, target: CrossTarget) !*Case {
+        const index = self.cases.items.len;
+        try self.cases.append(Case{
             .name = name,
             .target = target,
-            .kind = .exe,
-            .c_sources = ArrayList(TestCase.CSource).init(self.b.allocator),
-        };
+            .c_sources = ArrayList(Case.CSource).init(testing.allocator),
+        });
+        return &self.cases.items[index];
     }
 
-    pub fn createLib(self: *LinkContext, name: []const u8, target: CrossTarget) TestCase {
-        return TestCase{
-            .name = name,
-            .target = target,
-            .kind = .lib,
-            .c_sources = ArrayList(TestCase.CSource).init(self.b.allocator),
-        };
-    }
-
-    pub fn addCase(self: *LinkContext, case: TestCase, link_flags: []const []const u8, expected: struct {
-        stdout: []const u8 = "",
-        stderr: []const u8 = "",
-        load_commands: []macho.LoadCommand = &[0]macho.LoadCommand{},
-    }) void {
-        const b = self.b;
-        const target_triple = case.target.zigTriple(b.allocator) catch unreachable;
-        const annotated_case_name = b.fmt("link ({s}) {s}", .{ target_triple, case.name });
-        if (self.test_filter) |filter| {
-            if (mem.indexOf(u8, annotated_case_name, filter) == null) return;
+    pub fn run(self: *TestContext) !void {
+        for (self.cases.items) |case| {
+            try self.runCase(case);
         }
+    }
+
+    fn runCase(self: *TestContext, case: Case) !void {
+        var tmp = tmpDir(.{});
+        defer tmp.cleanup();
+
+        const target_triple = try case.target.zigTriple(testing.allocator);
 
         const write_src = b.addWriteFiles();
         if (case.zig_source) |zig_source| {
