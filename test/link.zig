@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const macho = std.macho;
 const tests = @import("tests.zig");
 const CrossTarget = std.zig.CrossTarget;
 
@@ -28,7 +29,7 @@ pub fn addCases(ctx: *tests.LinkContext) void {
                 \\    return 0;
                 \\}
             , &.{});
-            ctx.addCase(case, .{ .stdout = "Hello, World!\n" });
+            ctx.addCase(case, &.{}, .{ .stdout = "Hello, World!\n" });
         }
 
         {
@@ -49,7 +50,7 @@ pub fn addCases(ctx: *tests.LinkContext) void {
             case.addCSource("a.c",
                 \\_Thread_local int other = 10;
             , &.{});
-            ctx.addCase(case, .{ .stderr = 
+            ctx.addCase(case, &.{}, .{ .stderr = 
             \\0, 10
             \\10, 9
             \\
@@ -61,7 +62,19 @@ pub fn addCases(ctx: *tests.LinkContext) void {
             case.addCSource("main.c",
                 \\int main() {}
             , &.{});
-            ctx.addCase(case, .{});
+            var rpath_cmd = macho.emptyGenericCommandWithData(macho.rpath_command{
+                .cmd = macho.LC_RPATH,
+                .cmdsize = @sizeOf(macho.rpath_command),
+                .path = @sizeOf(macho.rpath_command),
+            });
+            _ = rpath_cmd;
+            ctx.addCase(case, &.{
+                "-rpath", "foo",
+            }, .{
+                .load_commands = &[_]macho.LoadCommand{
+                    .{ .rpath = rpath_cmd },
+                },
+            });
         }
     }
 }

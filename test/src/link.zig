@@ -5,6 +5,7 @@ const build = std.build;
 const CrossTarget = std.zig.CrossTarget;
 const io = std.io;
 const fs = std.fs;
+const macho = std.macho;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
@@ -73,9 +74,10 @@ pub const LinkContext = struct {
         };
     }
 
-    pub fn addCase(self: *LinkContext, case: TestCase, expected: struct {
+    pub fn addCase(self: *LinkContext, case: TestCase, link_flags: []const []const u8, expected: struct {
         stdout: []const u8 = "",
         stderr: []const u8 = "",
+        load_commands: []macho.LoadCommand = &[0]macho.LoadCommand{},
     }) void {
         const b = self.b;
         const target_triple = case.target.zigTriple(b.allocator) catch unreachable;
@@ -109,7 +111,6 @@ pub const LinkContext = struct {
                 break :blk shared;
             },
         };
-
         main.setTarget(case.target);
 
         for (case.c_sources.items) |source| {
@@ -124,6 +125,10 @@ pub const LinkContext = struct {
             inspect.* = MachoParseAndInspectStep.init(b, main);
             break :blk inspect;
         };
+        for (expected.load_commands) |lc| {
+            std.log.warn("{}", .{lc});
+            inspect.addExpectedLoadCommand(lc);
+        }
         inspect.step.dependOn(&main.step);
 
         const log = b.addLog("PASS {s}\n", .{annotated_case_name});
@@ -200,6 +205,7 @@ const MachoParseAndInspectStep = struct {
     step: build.Step,
     builder: *build.Builder,
     macho_file: *build.LibExeObjStep,
+    load_commands: ArrayList(macho.LoadCommand),
 
     pub fn init(builder: *build.Builder, macho_file: *build.LibExeObjStep) MachoParseAndInspectStep {
         return MachoParseAndInspectStep{
@@ -208,16 +214,49 @@ const MachoParseAndInspectStep = struct {
                 macho_file.getOutputSource().getDisplayName(),
             }), builder.allocator, make),
             .macho_file = macho_file,
+            .load_commands = ArrayList(macho.LoadCommand).init(builder.allocator),
         };
+    }
+
+    pub fn addExpectedLoadCommand(self: *MachoParseAndInspectStep, lc: macho.LoadCommand) void {
+        self.load_commands.append(lc) catch unreachable;
     }
 
     fn make(step: *build.Step) !void {
         const self = @fieldParentPtr(MachoParseAndInspectStep, "step", step);
         const executable_path = self.macho_file.installed_path orelse
             self.macho_file.getOutputSource().getPath(self.builder);
+
         const file = try fs.cwd().openFile(executable_path, .{});
         defer file.close();
-        std.log.warn("{}", .{file});
-        // TODO open, mmap the file, and execute a search query
+
+        // TODO mmap the file, but remember to handle Windows as the host too.
+        // The test should be possible to perform on ANY OS!
+        const reader = file.reader();
+        const header = try reader.readStruct(macho.mach_header_64);
+        assert(header.filetype == macho.MH_EXECUTE or header.filetype == macho.MH_DYLIB);
+
+        var load_commands = ArrayList(macho.LoadCommand).init(self.builder.allocator);
+        try load_commands.ensureTotalCapacity(header.ncmds);
+
+        var i: u16 = 0;
+        while (i < header.ncmds) : (i += 1) {
+            var cmd = try macho.LoadCommand.read(self.builder.allocator, reader);
+            load_commands.appendAssumeCapacity(cmd);
+        }
+
+        outer: for (self.load_commands.items) |exp_lc| {
+            for (load_commands.items) |given_lc| {
+                if (exp_lc.eql(given_lc)) continue :outer;
+            }
+
+            std.debug.print(
+                \\
+                \\======== Expected to find this load command: ========
+                \\{}
+                \\
+            , .{exp_lc});
+            return error.TestFailed;
+        }
     }
 };
