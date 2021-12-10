@@ -899,6 +899,12 @@ pub fn flushModule(self: *MachO, comp: *Compilation) !void {
                     };
                     _ = self.unresolved.swapRemove(resolv.where_index);
                     continue;
+                } else if (is_dyn_lib and (self.base.options.allow_shlib_undefined orelse false)) {
+                    // TODO allow_shlib_undefined is an ELF flag so figure out macOS specific flags too.
+                    sym.n_type = macho.N_EXT;
+                    sym.n_desc = 0xfe * macho.N_SYMBOL_RESOLVER;
+                    _ = self.unresolved.swapRemove(resolv.where_index);
+                    continue;
                 }
 
                 log.err("undefined reference to symbol '{s}'", .{sym_name});
@@ -5108,10 +5114,15 @@ fn writeDyldInfoData(self: *MachO) !void {
                         },
                         .undef => {
                             const bind_sym = self.undefs.items[resolv.where_index];
+                            const dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER);
                             try bind_pointers.append(.{
                                 .offset = binding.offset + base_offset,
                                 .segment_id = match.seg,
-                                .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                                .dylib_ordinal = switch (dylib_ordinal) {
+                                    0xff => -1,
+                                    0xfe => -2,
+                                    else => dylib_ordinal,
+                                },
                                 .name = self.getString(bind_sym.n_strx),
                             });
                         },
@@ -5130,10 +5141,15 @@ fn writeDyldInfoData(self: *MachO) !void {
                         },
                         .undef => {
                             const bind_sym = self.undefs.items[resolv.where_index];
+                            const dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER);
                             try lazy_bind_pointers.append(.{
                                 .offset = binding.offset + base_offset,
                                 .segment_id = match.seg,
-                                .dylib_ordinal = @divExact(bind_sym.n_desc, macho.N_SYMBOL_RESOLVER),
+                                .dylib_ordinal = switch (dylib_ordinal) {
+                                    0xff => -1,
+                                    0xfe => -2,
+                                    else => dylib_ordinal,
+                                },
                                 .name = self.getString(bind_sym.n_strx),
                             });
                         },
