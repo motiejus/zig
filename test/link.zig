@@ -19,7 +19,7 @@ const all_targets = &[_]CrossTarget{
 pub fn addCases(ctx: *tests.LinkContext) void {
     for (all_targets) |target| {
         {
-            var case = ctx.create("hello world in C", target);
+            var case = ctx.createExe("hello world in C", target);
             case.addCSource("test.c",
                 \\#include <stdio.h>
                 \\
@@ -28,12 +28,11 @@ pub fn addCases(ctx: *tests.LinkContext) void {
                 \\    return 0;
                 \\}
             , &.{});
-            case.expectStdOut("Hello, World!\n");
-            ctx.addCase(case);
+            ctx.addCase(case, .{ .stdout = "Hello, World!\n" });
         }
 
         {
-            var case = ctx.create("TLS support in Zig and C", target);
+            var case = ctx.createExe("TLS support in Zig and C", target);
             case.addZigSource("main.zig",
                 \\const std = @import("std");
                 \\
@@ -50,12 +49,19 @@ pub fn addCases(ctx: *tests.LinkContext) void {
             case.addCSource("a.c",
                 \\_Thread_local int other = 10;
             , &.{});
-            case.expectStdErr(
-                \\0, 10
-                \\10, 9
-                \\
-            );
-            ctx.addCase(case);
+            ctx.addCase(case, .{ .stderr = 
+            \\0, 10
+            \\10, 9
+            \\
+            });
+        }
+
+        {
+            var case = ctx.createExe("rpaths in binary", target);
+            case.addCSource("main.c",
+                \\int main() {}
+            , &.{});
+            ctx.addCase(case, .{});
         }
     }
 }

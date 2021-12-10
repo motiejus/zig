@@ -23,19 +23,14 @@ pub const LinkContext = struct {
     pub const TestCase = struct {
         name: []const u8,
         target: CrossTarget,
+        kind: enum { exe, lib },
         zig_source: ?struct { basename: []const u8, bytes: []const u8 } = null,
         c_sources: ArrayList(CSource),
-        expected_out: ExpectedOutput = .{},
 
         const CSource = struct {
             basename: []const u8,
             bytes: []const u8,
             flags: []const []const u8,
-        };
-
-        const ExpectedOutput = struct {
-            stdout: ?[]const u8 = null,
-            stderr: ?[]const u8 = null,
         };
 
         pub fn addZigSource(self: *TestCase, basename: []const u8, bytes: []const u8) void {
@@ -58,25 +53,30 @@ pub const LinkContext = struct {
                 .flags = flags,
             }) catch unreachable;
         }
-
-        pub fn expectStdOut(self: *TestCase, stdout: []const u8) void {
-            self.expected_out.stdout = stdout;
-        }
-
-        pub fn expectStdErr(self: *TestCase, stderr: []const u8) void {
-            self.expected_out.stderr = stderr;
-        }
     };
 
-    pub fn create(self: *LinkContext, name: []const u8, target: CrossTarget) TestCase {
+    pub fn createExe(self: *LinkContext, name: []const u8, target: CrossTarget) TestCase {
         return TestCase{
             .name = name,
             .target = target,
+            .kind = .exe,
             .c_sources = ArrayList(TestCase.CSource).init(self.b.allocator),
         };
     }
 
-    pub fn addCase(self: *LinkContext, case: TestCase) void {
+    pub fn createLib(self: *LinkContext, name: []const u8, target: CrossTarget) TestCase {
+        return TestCase{
+            .name = name,
+            .target = target,
+            .kind = .lib,
+            .c_sources = ArrayList(TestCase.CSource).init(self.b.allocator),
+        };
+    }
+
+    pub fn addCase(self: *LinkContext, case: TestCase, expected: struct {
+        stdout: []const u8 = "",
+        stderr: []const u8 = "",
+    }) void {
         const b = self.b;
         const target_triple = case.target.zigTriple(b.allocator) catch unreachable;
         const annotated_case_name = b.fmt("link ({s}) {s}", .{ target_triple, case.name });
@@ -93,21 +93,43 @@ pub const LinkContext = struct {
             write_src.add(source.basename, source.bytes);
         }
 
-        const exe = if (case.zig_source) |zig_source|
-            b.addExecutableSource("test", write_src.getFileSource(zig_source.basename).?)
-        else
-            b.addExecutable("test", null);
+        const main = switch (case.kind) {
+            .exe => blk: {
+                const exe = if (case.zig_source) |zig_source|
+                    b.addExecutableSource("test", write_src.getFileSource(zig_source.basename).?)
+                else
+                    b.addExecutable("test", null);
+                break :blk exe;
+            },
+            .lib => blk: {
+                const shared = if (case.zig_source) |zig_source|
+                    b.addSharedLibrarySource("test", write_src.getFileSource(zig_source.basename).?, b.version(1, 0, 0))
+                else
+                    b.addSharedLibrary("test", null, b.version(1, 0, 0));
+                break :blk shared;
+            },
+        };
 
-        exe.setTarget(case.target);
+        main.setTarget(case.target);
 
         for (case.c_sources.items) |source| {
-            exe.addCSourceFileSource(.{
+            main.addCSourceFileSource(.{
                 .source = write_src.getFileSource(source.basename).?,
                 .args = source.flags,
             });
         }
 
-        build_only: {
+        const inspect = blk: {
+            const inspect = b.allocator.create(MachoParseAndInspectStep) catch unreachable;
+            inspect.* = MachoParseAndInspectStep.init(b, main);
+            break :blk inspect;
+        };
+        inspect.step.dependOn(&main.step);
+
+        const log = b.addLog("PASS {s}\n", .{annotated_case_name});
+        log.step.dependOn(&inspect.step);
+
+        if (case.kind == .exe) build_only: {
             const host = std.zig.system.NativeTargetInfo.detect(b.allocator, .{}) catch
                 break :build_only;
             const target_info = std.zig.system.NativeTargetInfo.detect(b.allocator, case.target) catch
@@ -147,33 +169,55 @@ pub const LinkContext = struct {
                         args.append("-L") catch unreachable;
                         args.append(full_dir) catch unreachable;
                     }
-                    exe.setExecCmd(args.items);
+                    main.setExecCmd(args.items);
                 } else break :build_only,
                 .darling => |bin_name| if (b.enable_darling) {
-                    exe.setExecCmd(&.{bin_name});
+                    main.setExecCmd(&.{bin_name});
                 } else break :build_only,
                 .wasmtime => |bin_name| if (b.enable_wasmtime) {
-                    exe.setExecCmd(&.{bin_name});
+                    main.setExecCmd(&.{bin_name});
                 } else break :build_only,
                 .wine => |bin_name| if (b.enable_wine) {
-                    exe.setExecCmd(&.{bin_name});
+                    main.setExecCmd(&.{bin_name});
                 } else break :build_only,
                 else => break :build_only,
             }
 
-            const run = exe.run();
-            run.expectStdErrEqual(case.expected_out.stderr orelse "");
-            run.expectStdOutEqual(case.expected_out.stdout orelse "");
+            const run = main.run();
+            run.expectStdErrEqual(expected.stderr);
+            run.expectStdOutEqual(expected.stdout);
 
-            const log = b.addLog("PASS {s}\n", .{annotated_case_name});
             log.step.dependOn(&run.step);
-            self.step.dependOn(&log.step);
-
-            return;
         }
 
-        const log = b.addLog("PASS (build only) {s}\n", .{annotated_case_name});
-        log.step.dependOn(&exe.step);
         self.step.dependOn(&log.step);
+    }
+};
+
+const MachoParseAndInspectStep = struct {
+    pub const base_id = .custom;
+
+    step: build.Step,
+    builder: *build.Builder,
+    macho_file: *build.LibExeObjStep,
+
+    pub fn init(builder: *build.Builder, macho_file: *build.LibExeObjStep) MachoParseAndInspectStep {
+        return MachoParseAndInspectStep{
+            .builder = builder,
+            .step = build.Step.init(.custom, builder.fmt("MachoParseAndInspect {s}", .{
+                macho_file.getOutputSource().getDisplayName(),
+            }), builder.allocator, make),
+            .macho_file = macho_file,
+        };
+    }
+
+    fn make(step: *build.Step) !void {
+        const self = @fieldParentPtr(MachoParseAndInspectStep, "step", step);
+        const executable_path = self.macho_file.installed_path orelse
+            self.macho_file.getOutputSource().getPath(self.builder);
+        const file = try fs.cwd().openFile(executable_path, .{});
+        defer file.close();
+        std.log.warn("{}", .{file});
+        // TODO open, mmap the file, and execute a search query
     }
 };
