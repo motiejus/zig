@@ -1151,7 +1151,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
             } else switch (options.output_mode) {
                 .Lib, .Obj => break :blk false,
                 .Exe => switch (options.optimize_mode) {
-                    .Debug => break :blk false,
+                    .Debug, .FastBuild => break :blk false,
                     .ReleaseSafe, .ReleaseFast, .ReleaseSmall => break :blk true,
                 },
             }
@@ -1255,7 +1255,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
 
         const is_safe_mode = switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => true,
-            .ReleaseFast, .ReleaseSmall => false,
+            .FastBuild, .ReleaseFast, .ReleaseSmall => false,
         };
 
         const sanitize_c = options.want_sanitize_c orelse is_safe_mode;
@@ -1560,7 +1560,7 @@ pub fn create(gpa: Allocator, options: InitOptions) !*Compilation {
         const error_return_tracing = !strip and switch (options.optimize_mode) {
             .Debug, .ReleaseSafe => (!options.target.isWasm() or options.target.os.tag == .emscripten) and
                 !options.target.cpu.arch.isBpf(),
-            .ReleaseFast, .ReleaseSmall => false,
+            .FastBuild, .ReleaseFast, .ReleaseSmall => false,
         };
 
         // For resource management purposes.
@@ -4079,6 +4079,9 @@ pub fn addCCArgs(
                         try argv.append("-fno-stack-protector");
                     }
                 },
+                .FastBuild => {
+                    try argv.append("-O0");
+                },
                 .ReleaseSafe => {
                     // See the comment in the BuildModeFastRelease case for why we pass -O2 rather
                     // than -O3 here.
@@ -5320,7 +5323,7 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.Mode {
         return comp.bin_file.options.optimize_mode;
     }
     switch (comp.bin_file.options.optimize_mode) {
-        .Debug, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(comp.getTarget()),
+        .Debug, .FastBuild, .ReleaseSafe => return target_util.defaultCompilerRtOptimizeMode(comp.getTarget()),
         .ReleaseFast => return .ReleaseFast,
         .ReleaseSmall => return .ReleaseSmall,
     }

@@ -2795,6 +2795,7 @@ fn resolveCallingConventionValues(self: *Self, fn_ty: Type) !CallMCValues {
 fn wantSafety(self: *Self) bool {
     return switch (self.bin_file.options.optimize_mode) {
         .Debug => true,
+        .FastBuild => false,
         .ReleaseSafe => true,
         .ReleaseFast => false,
         .ReleaseSmall => false,

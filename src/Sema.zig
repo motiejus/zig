@@ -213,6 +213,7 @@ pub const Block = struct {
     pub fn wantSafety(block: *const Block) bool {
         return block.want_safety orelse switch (block.sema.mod.optimizeMode()) {
             .Debug => true,
+            .FastBuild => false,
             .ReleaseSafe => true,
             .ReleaseFast => false,
             .ReleaseSmall => false,

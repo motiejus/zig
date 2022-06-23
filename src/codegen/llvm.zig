@@ -7143,7 +7143,7 @@ pub const FuncGen = struct {
                 // thereby bait contributors (or let's be honest, probably myself) into
                 // fixing this instead of letting it rot.
                 const safety = switch (self.dg.module.comp.bin_file.options.optimize_mode) {
-                    .ReleaseSmall, .ReleaseFast => false,
+                    .ReleaseSmall, .ReleaseFast, .FastBuild => false,
                     .Debug, .ReleaseSafe => true,
                 };
                 if (!safety) {

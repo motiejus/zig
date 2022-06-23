@@ -23,7 +23,7 @@ const native_endian = native_arch.endian();
 
 pub const runtime_safety = switch (builtin.mode) {
     .Debug, .ReleaseSafe => true,
-    .ReleaseFast, .ReleaseSmall => false,
+    .FastBuild, .ReleaseFast, .ReleaseSmall => false,
 };
 
 pub const LineInfo = struct {

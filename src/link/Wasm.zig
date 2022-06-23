@@ -2636,6 +2636,7 @@ fn linkWithLLD(self: *Wasm, comp: *Compilation, prog_node: *std.Progress.Node) !
 
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
+                .FastBuild => try argv.append("-O0"),
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-O2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("-O3"),

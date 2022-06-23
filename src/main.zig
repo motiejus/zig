@@ -94,7 +94,7 @@ const usage = if (debug_extensions_enabled) debug_usage else normal_usage;
 
 pub const log_level: std.log.Level = switch (builtin.mode) {
     .Debug => .debug,
-    .ReleaseSafe, .ReleaseFast => .info,
+    .FastBuild, .ReleaseSafe, .ReleaseFast => .info,
     .ReleaseSmall => .err,
 };
 
@@ -349,6 +349,7 @@ const usage_build_generic =
     \\  --name [name]             Override root name (not a file path)
     \\  -O [mode]                 Choose what to optimize for
     \\    Debug                   (default) Optimizations off, safety on
+    \\    FastBuild               Optimizations off, safety off
     \\    ReleaseFast             Optimizations on, safety off
     \\    ReleaseSafe             Optimizations on, safety on
     \\    ReleaseSmall            Optimize for small binary, safety off
@@ -1518,9 +1519,9 @@ fn buildOutputType(
                             mem.eql(u8, level, "fast"))
                         {
                             optimize_mode = .ReleaseFast;
-                        } else if (mem.eql(u8, level, "g") or
-                            mem.eql(u8, level, "0"))
-                        {
+                        } else if (mem.eql(u8, level, "0")) {
+                            optimize_mode = .FastBuild;
+                        } else if (mem.eql(u8, level, "g")) {
                             optimize_mode = .Debug;
                         } else {
                             try clang_argv.appendSlice(it.other_args);

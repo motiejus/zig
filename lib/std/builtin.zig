@@ -132,6 +132,7 @@ pub const CodeModel = enum {
 /// therefore must be kept in sync with the compiler implementation.
 pub const Mode = enum {
     Debug,
+    FastBuild,
     ReleaseSafe,
     ReleaseFast,
     ReleaseSmall,

@@ -1433,7 +1433,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
-                .Debug => {},
+                .Debug, .FastBuild => {},
                 .ReleaseSmall => try argv.append("--lto-O2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("--lto-O3"),
             }

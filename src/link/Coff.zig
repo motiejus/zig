@@ -1071,7 +1071,7 @@ fn linkWithLLD(self: *Coff, comp: *Compilation, prog_node: *std.Progress.Node) !
         }
         if (self.base.options.lto) {
             switch (self.base.options.optimize_mode) {
-                .Debug => {},
+                .Debug, .FastBuild => {},
                 .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
                 .ReleaseFast, .ReleaseSafe => try argv.append("-OPT:lldlto=3"),
             }
