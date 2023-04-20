@@ -1873,7 +1873,13 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
 
         switch (self.base.options.compress_debug_sections) {
             .none => {},
-            .zlib => try argv.append("--compress-debug-sections=zlib"),
+            .zlib, .zstd => |algo| {
+                const arg = try mem.concat(self.base.allocator, u8, &[_][]const u8{
+                    "--compress-debug-sections=",
+                    @tagName(algo),
+                });
+                try argv.append(arg);
+            },
         }
 
         if (self.base.options.bind_global_refs_locally) {

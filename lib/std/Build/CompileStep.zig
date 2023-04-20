@@ -45,7 +45,7 @@ name_only_filename: ?[]const u8,
 strip: ?bool,
 unwind_tables: ?bool,
 // keep in sync with src/link.zig:CompressDebugSections
-compress_debug_sections: enum { none, zlib } = .none,
+compress_debug_sections: enum { none, zlib, zstd } = .none,
 lib_paths: ArrayList(FileSource),
 rpaths: ArrayList(FileSource),
 framework_dirs: ArrayList(FileSource),
@@ -1452,7 +1452,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     switch (self.compress_debug_sections) {
         .none => {},
-        .zlib => try zig_args.append("--compress-debug-sections=zlib"),
+        .zlib, .zstd => |algo| {
+            const arg = try mem.concat(b.allocator, u8, &[_][]const u8{
+                "--compress-debug-sections=",
+                @tagName(algo),
+            });
+            try zig_args.append(arg);
+        },
     }
 
     if (self.link_eh_frame_hdr) {
